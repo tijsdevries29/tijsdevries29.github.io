@@ -880,7 +880,7 @@ if (typeof L !== "undefined") (function () {
     $("start").dataset.label = label || "";
     if (fly) showStart(p);
     if (!routes.length) setStatus("Start set. Choose a distance and press Find routes.");
-    save(); loadWeather();
+    save(); loadWeather(); warm();
   }
   function save() {
     store.set("lrp", { p: start, label: $("start").value, km: $("km").value, unit: unitMode, pace: $("pace").value });
@@ -937,43 +937,101 @@ if (typeof L !== "undefined") (function () {
   }
 
   /* ---------- scenery data ---------- */
-  async function loadScenery(target, evening, surf) {
-    const radius = Math.round(Math.min(6000, Math.max(1500, target * 0.4)));
-    if (scenery && sceneryKey && haversine(sceneryKey.p, start) < 400 && radius <= sceneryKey.radius &&
-        (!evening || sceneryKey.evening) && (!surf || sceneryKey.surf)) return scenery;
-    const a = `(around:${radius},${start[0].toFixed(5)},${start[1].toFixed(5)});`;
+  /* Map data is the slowest part of a search, so it is (1) kept on this device for 30 days per start area,
+     (2) requested as soon as a start point is known, before Find routes is pressed. */
+  let pending = null, warmTimer = 0;
+  const covers = (k, p, radius, evening, surf) => !!k && haversine(k.p, p) < 400 && radius <= k.radius && (!evening || k.evening) && (!surf || k.surf);
+  const openDb = () => new Promise((res, rej) => {
+    const r = indexedDB.open("lrp", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("scenery");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  async function cacheGet(key) {
+    try {
+      const m = store.get("lrp-sc", []).find(m => Date.now() - m.t < 30 * 864e5 && covers(m, key.p, key.radius, key.evening, key.surf));
+      if (!m) return null;
+      const db = await openDb();
+      return await new Promise(res => {
+        const q = db.transaction("scenery").objectStore("scenery").get(m.id);
+        q.onsuccess = () => res(Array.isArray(q.result) ? q.result : null); q.onerror = () => res(null);
+      });
+    } catch (e) { return null; }
+  }
+  async function cachePut(key, elements) {
+    try {
+      const db = await openDb(), id = Date.now().toString(36);
+      await new Promise((res, rej) => {
+        const tx = db.transaction("scenery", "readwrite");
+        tx.objectStore("scenery").put(elements, id); tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+      const metas = [{ id, p: key.p, radius: key.radius, evening: !!key.evening, surf: !!key.surf, t: Date.now() }].concat(store.get("lrp-sc", []));
+      store.set("lrp-sc", metas.slice(0, 5));
+      if (metas.length > 5) { const tx = db.transaction("scenery", "readwrite"); metas.slice(5).forEach(m => tx.objectStore("scenery").delete(m.id)); }
+    } catch (e) {}
+  }
+  function loadScenery(target, evening, surf) {
+    const p = start, radius = Math.round(Math.min(6000, Math.max(1500, target * 0.4)));
+    if (scenery && covers(sceneryKey, p, radius, evening, surf)) return Promise.resolve(scenery);
+    if (pending && covers(pending.key, p, radius, evening, surf)) return pending.promise;
+    const key = { p, radius, evening: !!evening, surf: !!surf };
+    const promise = fetchScenery(key).then(elements => {
+      if (pending && pending.key === key) pending = null;
+      if (!elements || !start || haversine(p, start) > 400) return null;
+      scenery = buildScenery(elements, p, radius); sceneryKey = key;
+      drawScenery();
+      return scenery;
+    });
+    pending = { key, promise };
+    return promise;
+  }
+  function warm() {
+    clearTimeout(warmTimer);
+    warmTimer = setTimeout(() => {
+      const t = targetMeters();
+      if (start && t >= 1000 && !$("go").disabled) loadScenery(t, $("evening").checked, $("surface").value !== "any").catch(() => {});
+    }, 600);
+  }
+  async function fetchScenery(key) {
+    const cached = await cacheGet(key);
+    if (cached) return cached;
+    const { p, radius, evening, surf } = key;
+    const a = `(around:${radius},${p[0].toFixed(5)},${p[1].toFixed(5)});`;
     const head = `[out:json][timeout:40];(`, tail = `);out geom qt;`;
     const qScenery = head +
       `way["leisure"~"^(park|nature_reserve)$"]${a}relation["leisure"~"^(park|nature_reserve)$"]${a}` +
       `way["leisure"="garden"]["name"]${a}` +
-      `way["landuse"~"^(forest|meadow|recreation_ground|village_green)$"]${a}relation["landuse"="forest"]${a}` +
-      `way["natural"~"^(wood|heath|scrub|grassland|water)$"]${a}relation["natural"~"^(wood|heath|water)$"]${a}` +
+      `way["landuse"~"^(forest|recreation_ground|village_green)$"]${a}relation["landuse"="forest"]${a}` +
+      `way["natural"~"^(wood|heath|water)$"]${a}relation["natural"~"^(wood|heath|water)$"]${a}` +
       `way["waterway"~"^(river|canal)$"]${a}` + tail;
     const qStreets = head +
       `way["highway"~"^(trunk|primary|secondary|tertiary|pedestrian)$"]${a}` +
       `node["amenity"~"^(drinking_water|toilets|school)$"]${a}way["amenity"="school"]${a}way["landuse"="retail"]${a}` +
       `node["highway"="traffic_signals"]${a}node["crossing"="traffic_signals"]${a}` +
-      (evening ? `way["highway"]["lit"="yes"]${a}` : "") +
       (surf ? `way["highway"]["surface"~"^(unpaved|gravel|fine_gravel|compacted|dirt|ground|earth|grass|sand|mud|woodchips|pebblestone)$"]${a}way["highway"="track"][!"surface"]${a}` : "") + tail;
     /* Ask two servers at once and take whichever answers first; fall back to a third. */
-    const ask = async (url, q) => {
-      const r = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+    /* Street lighting is by far the largest download (most city streets are lit), so it is its own request:
+       geometry only, no tags, and it gives up after 20 s so a search never hangs on it. */
+    const qLit = `[out:json][timeout:25];way["highway"]["highway"!~"^(motorway|motorway_link|trunk|trunk_link|construction|proposed)$"]["lit"="yes"]${a}out skel geom qt;`;
+    const ask = async (url, q, ms) => {
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms || 45000);
+      const r = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: ctl.signal })
+        .finally(() => clearTimeout(timer));
       if (!r.ok) throw new Error("Overpass " + r.status);
       const j = await r.json();
       if (!j.elements) throw new Error("Overpass: no data");
       return j.elements;
     };
-    const get = q => Promise.any([ask(OVERPASS[0], q), ask(OVERPASS[1], q)]).catch(() => ask(OVERPASS[2], q));
+    const get = (q, ms) => Promise.any([ask(OVERPASS[0], q, ms), ask(OVERPASS[1], q, ms)]).catch(() => ms ? Promise.reject(new Error("timed out")) : ask(OVERPASS[2], q));
     let data = null;
     try {
-      const [green, streets] = await Promise.all([get(qScenery), get(qStreets).catch(e => { console.warn(e); return []; })]);
-      data = { elements: green.concat(streets) };
+      const [green, streets, lit] = await Promise.all([get(qScenery), get(qStreets).catch(e => { console.warn(e); return []; }),
+        evening ? get(qLit, 20000).catch(e => { console.warn(e); key.litFailed = true; return []; }) : []]);
+      for (const el of lit) el.tags = { highway: "lit", lit: "yes" };
+      data = { elements: green.concat(streets, lit) };
     } catch (e) { console.warn("Overpass failed", e); }
-    if (!data || !data.elements) return null;
-    scenery = buildScenery(data.elements, start, radius);
-    sceneryKey = { p: start, radius, evening, surf };
-    drawScenery();
-    return scenery;
+    if (!data) return null;
+    if (!key.litFailed) cachePut(key, data.elements);
+    return data.elements;
   }
   function drawScenery() {
     sceneryLayer.clearLayers();
@@ -1001,7 +1059,7 @@ if (typeof L !== "undefined") (function () {
   /* Try a shape at several sizes until its routed length lands near the target; keep the best trade-off. */
   async function calibrate(shape, size, resize, opt) {
     const cands = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       if (opt.id !== runId) return null;
       const names = [];
       const points = shape(size).map(w => {
@@ -1014,20 +1072,20 @@ if (typeof L !== "undefined") (function () {
       res.names = names; res.rank = opt.rank(res.share); res.way = points;
       cands.push(res);
       res.size = size;
-      if (Math.abs(res.dist - opt.target) / opt.target < 0.05) break;
+      if (Math.abs(res.dist - opt.target) / opt.target < 0.06) break;
       size = resize(size, res.dist);
     }
     return chooseCandidate(cands, opt.target, c => c.rank);
   }
   const fix = p => ({ p, fixed: true });
   /* How much longer real paths are than the circle they follow; learned from each finished route so later ones start closer. */
-  let detour = 1.35;
+  let detour = Math.min(2.2, Math.max(1.05, +store.get("lrp-detour", 1.35) || 1.35));
   async function circleLoop(bearing, clockwise, opt) {
     const res = await calibrate(
       r => [fix(start), ...loopWaypoints(start, bearing, r, clockwise).map(p => ({ p, reach: r * 0.45 })), fix(start)],
       opt.target / (2 * Math.PI * detour),
       (r, dist) => r * Math.min(1.8, Math.max(0.5, opt.target / dist)), opt);
-    if (res && res.size) detour = Math.min(2.2, Math.max(1.05, 0.5 * detour + 0.5 * res.dist / (2 * Math.PI * res.size)));
+    if (res && res.size) { detour = Math.min(2.2, Math.max(1.05, 0.5 * detour + 0.5 * res.dist / (2 * Math.PI * res.size))); store.set("lrp-detour", detour); }
     return res;
   }
   function viaLoop(shape, opt) {
@@ -1459,11 +1517,13 @@ if (typeof L !== "undefined") (function () {
   function stepKm(dir) {
     const min = unitMode === "min", step = min ? 5 : 0.5;
     const v = Math.min(min ? 360 : 60, Math.max(min ? 10 : 1, (parseFloat($("km").value) || (min ? 45 : 8)) + dir * step));
-    $("km").value = Math.round(v / step) * step; sizeKm(); updateHelp(); save(); showWeather();
+    $("km").value = Math.round(v / step) * step; sizeKm(); updateHelp(); save(); showWeather(); warm();
   }
   $("less").addEventListener("click", () => stepKm(-1));
   $("longer").addEventListener("click", () => stepKm(1));
-  $("km").addEventListener("input", () => { sizeKm(); updateHelp(); });
+  $("km").addEventListener("input", () => { sizeKm(); updateHelp(); warm(); });
+  $("surface").addEventListener("change", warm);
+  $("evening").addEventListener("change", warm);
   $("pace").addEventListener("input", updateHelp);
   $("modeKm").addEventListener("click", () => setMode("km"));
   $("modeMin").addEventListener("click", () => setMode("min"));
@@ -1500,10 +1560,16 @@ if (typeof L !== "undefined") (function () {
 
       let note = "";
       setStatus(evening ? "Loading parks, water and street lighting nearby…" : "Loading parks, nature and water nearby…");
+      const t0 = Date.now();
       const sc = await loadScenery(target, evening, surf !== "any");
+      const tMap = Date.now() - t0;
       if (id !== runId) return;
       if (!sc) { scenery = null; sceneryKey = null; drawScenery(); note = " Scenery data could not be loaded, so these are plain loops."; }
       else {
+        if (evening && sceneryKey && sceneryKey.litFailed) {
+          note = " Street lighting data did not arrive in time, so the lit share is missing. Search again to retry.";
+          sceneryKey = Object.assign({}, sceneryKey, { evening: false });
+        }
         /* mark the streets of saved routes, so new routes can steer away from them */
         sc.clearBit(USED);
         if (fresh) for (const f of favs()) sc.markLine(decodePolyline(f.line), USED);
@@ -1549,13 +1615,14 @@ if (typeof L !== "undefined") (function () {
         }
       };
       setStatus(`Building ${plan.length} routes…`);
-      await Promise.all([worker(), worker(), worker()]);
+      await Promise.all([worker(), worker(), worker(), worker()]);
       if (id !== runId) return;
       if (!routes.length) setStatus("No loops found from here. The routing service may be busy, or there are few paths nearby. Try again, or move the pin.", true);
       else {
         setStatus(`${routes.length} route${routes.length > 1 ? "s" : ""} ready, nicest first.` +
           (scenery ? ` Street busyness is estimated for ${at.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}.` : "") +
-          (failed ? ` ${failed} option${failed > 1 ? "s" : ""} had no good loop.` : "") + note);
+          (failed ? ` ${failed} option${failed > 1 ? "s" : ""} had no good loop.` : "") + note +
+          ` Took ${Math.round((Date.now() - t0) / 1000)} s (map data ${Math.round(tMap / 1000)} s).`);
         $("hint").hidden = false;
         pushHistory();
         if (phone.matches) {
