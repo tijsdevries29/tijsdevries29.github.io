@@ -26,6 +26,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
 <style>
 /* Two looks on one layout. Day ("Track day"): white rail, magenta, condensed numerals.
    Night ("Night run"): dark floating panel, amber, round controls. Phone: full map, start field on top, sheet at the bottom. */
@@ -306,6 +307,8 @@ footer { margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--soft)
 </aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="vendor/maplibre-gl.js"></script>
+<script src="vendor/leaflet-maplibre-gl.js"></script>
 <script>
 "use strict";
 /* ================= geometry (pure) ================= */
@@ -573,38 +576,73 @@ if (typeof L !== "undefined") (function () {
   const panel = $("panel");
 
   /* ---------- map ---------- */
-  const map = L.map("map", { zoomControl: false }).setView([52.15, 5.3], 8);
+  const map = L.map("map", { zoomControl: false, minZoom: 3, maxZoom: 19 }).setView([52.15, 5.3], 8);
   L.control.zoom({ position: "bottomright" }).addTo(map);
   const esri = (name, opt) => L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`,
     Object.assign({ maxZoom: 19, attribution: "Tiles &copy; Esri and its data providers" }, opt));
   const streets = esri("World_Street_Map");
   const darkBase = esri("Canvas/World_Dark_Gray_Base", { maxNativeZoom: 16 });
   const dark = L.layerGroup([darkBase, esri("Canvas/World_Dark_Gray_Reference", { maxNativeZoom: 16 })]);
-  const baseLayers = {
+
+  /* The default map is a detailed vector map (OpenFreeMap): sharp on phone screens, with footpaths, buildings
+     and names. It needs WebGL; if it cannot start or its style will not load, the picture maps below take over. */
+  function hasWebGL() {
+    try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch (e) { return false; }
+  }
+  let vectorOK = typeof L.maplibreGL === "function" && typeof maplibregl !== "undefined" && hasWebGL();
+  function vector(style) {
+    if (!vectorOK) return null;
+    const layer = L.maplibreGL({ style: "https://tiles.openfreemap.org/styles/" + style });
+    layer.on("add", () => {
+      const gl = layer.getMaplibreMap();
+      if (!gl || gl.lrpWatched) return;
+      gl.lrpWatched = true;
+      let ready = false;
+      const fail = () => { if (!ready && vectorOK) vectorFailed(); };
+      gl.once("styledata", () => { ready = true; });
+      gl.on("error", fail);
+      setTimeout(fail, 12000);
+    });
+    return layer;
+  }
+  const detailed = vector("liberty"), detailedDark = vector("dark");
+  const baseLayers = {};
+  if (detailed) { baseLayers["Detailed"] = detailed; baseLayers["Detailed dark"] = detailedDark; }
+  Object.assign(baseLayers, {
     "Streets": streets,
     "Dark": dark,
     "Terrain": esri("World_Topo_Map"),
     "Satellite": esri("World_Imagery"),
     "OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' })
-  };
+  });
   map.createPane("scenery").style.zIndex = 350;
   map.getPane("scenery").style.pointerEvents = "none";
   const sceneryRenderer = L.canvas({ pane: "scenery" });
   const sceneryLayer = L.layerGroup().addTo(map);
-  L.control.layers(baseLayers, { "Parks, nature and water": sceneryLayer }, { position: "topright" }).addTo(map);
+  const layersControl = L.control.layers(baseLayers, { "Parks, nature and water": sceneryLayer }, { position: "topright" }).addTo(map);
   const routeLayer = L.layerGroup().addTo(map), tickLayer = L.layerGroup().addTo(map);
 
-  /* The dark map is a separate tile set; if it will not load, fall back to the street map shown in inverted colours. */
+  /* Day: detailed map, else street map. Night: detailed dark map, else the dark picture map,
+     else the street map shown in inverted colours. A map the user picks by hand is left alone. */
   let manualBase = false, settingBase = false, darkBroken = false, darkLoaded = 0, darkErrors = 0;
   function setBase() {
     if (manualBase) return;
-    const night = root.dataset.theme === "night", want = night && !darkBroken ? dark : streets;
+    const night = root.dataset.theme === "night";
+    const want = night ? (vectorOK ? detailedDark : (darkBroken ? streets : dark)) : (vectorOK ? detailed : streets);
     settingBase = true;
     for (const l of Object.values(baseLayers)) if (l !== want && map.hasLayer(l)) map.removeLayer(l);
     if (!map.hasLayer(want)) want.addTo(map);
     settingBase = false;
-    map.getPane("tilePane").classList.toggle("inverted", night && darkBroken);
+    map.getPane("tilePane").classList.toggle("inverted", night && !vectorOK && darkBroken);
+  }
+  function vectorFailed() {
+    vectorOK = false; manualBase = false;
+    settingBase = true;
+    for (const l of [detailed, detailedDark]) { if (map.hasLayer(l)) map.removeLayer(l); layersControl.removeLayer(l); }
+    delete baseLayers["Detailed"]; delete baseLayers["Detailed dark"];
+    settingBase = false;
+    setBase();
   }
   darkBase.on("tileload", () => { darkLoaded++; });
   darkBase.on("tileerror", () => { if (++darkErrors >= 4 && !darkLoaded && !darkBroken) { darkBroken = true; setBase(); } });
@@ -730,7 +768,7 @@ if (typeof L !== "undefined") (function () {
     const night = root.dataset.theme === "night";
     const col = { [PARK]: css("--park"), [NATURE]: css("--nature"), [WATER]: css("--water") };
     for (const f of scenery.features) {
-      const o = { renderer: sceneryRenderer, interactive: false, color: col[f.bit], weight: f.line ? 3 : 1, opacity: night ? 0.5 : 0.55, fillOpacity: night ? 0.2 : 0.28 };
+      const o = { renderer: sceneryRenderer, interactive: false, color: col[f.bit], weight: f.line ? 3 : 1, opacity: night ? 0.55 : 0.5, fillOpacity: night ? 0.22 : 0.2 };
       (f.line ? L.polyline(f.line, o) : L.polygon(f.rings, o)).addTo(sceneryLayer);
     }
   }
