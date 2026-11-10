@@ -169,6 +169,38 @@ summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--soft)
 .route .actions button { min-height: 36px; padding: 5px 12px; font-size: 14px; font-weight: 600; background: transparent; border: 1px solid var(--line); border-radius: var(--r-field); }
 .route .pos { display: none; font-size: 13px; color: var(--soft); }
 
+#wx { margin: 0; font-size: 14px; color: var(--soft); }
+#wx strong { color: var(--warn); font-weight: 600; }
+.dist-head { display: flex; align-items: center; gap: 10px; }
+.seg { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--line); border-radius: 999px; }
+.seg button { min-width: 44px; height: 26px; padding: 0 10px; font-size: 13px; font-weight: 600; color: var(--soft); background: transparent; border: 0; border-radius: 999px; }
+.seg button.on { background: var(--ink); color: var(--panel); }
+[data-theme="night"] .seg button.on { background: var(--accent); color: var(--accent-ink); }
+#kmHelp { display: block; margin-top: 2px; }
+.check { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 15px; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.spark { display: block; width: 100%; height: 26px; }
+.spark path.area { fill: var(--rc); opacity: .16; }
+.spark path.line { fill: none; stroke: var(--rc); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.route .actions { flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+.route .actions .pos { margin-left: auto; }
+.route .actions button.on { border-color: var(--rc); color: var(--ink); }
+.saved-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.saved-list li { display: flex; align-items: stretch; gap: 6px; }
+.saved-list .open { flex: 1; min-width: 0; min-height: 44px; padding: 6px 12px; text-align: left; background: var(--field); border: 1px solid var(--line); border-radius: var(--r-field); }
+.saved-list .open b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-list .open span { font-size: 13px; color: var(--soft); }
+.saved-list .del { flex: 0 0 44px; background: transparent; border: 1px solid var(--line); border-radius: var(--r-field); color: var(--soft); font-size: 18px; }
+.saved-list .none { font-size: 13px; color: var(--soft); }
+#runbar { order: -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 2px solid var(--accent); border-radius: var(--r-card); }
+#runMain { font-family: var(--num); font-weight: 700; font-size: 24px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+[data-theme="night"] #runMain { font-size: 19px; font-weight: 800; }
+#runSub { font-size: 14px; color: var(--soft); }
+#runSub.off { color: var(--warn); font-weight: 600; }
+.handle { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 5px solid; box-shadow: 0 1px 5px rgba(0,0,0,.5); cursor: grab; }
+.poi { width: max-content; transform: translate(-50%, -50%); padding: 2px 5px; border-radius: 6px; font: 700 10px/1.2 var(--font); color: #fff; background: #1c7ed6; border: 1.5px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.poi.toilet { background: #5f6b76; }
+.me { width: 20px; height: 20px; border-radius: 50%; background: #1971ff; border: 4px solid #fff; box-shadow: 0 0 0 8px rgba(25,113,255,.25), 0 1px 5px rgba(0,0,0,.5); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--soft); }
 .legend li { display: flex; align-items: center; gap: 5px; }
 .legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
@@ -223,6 +255,10 @@ footer { margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--soft)
   .primary { order: 3; }
   #status { order: 4; font-size: 13px; }
   #panel.min form, #panel.min #status { display: none; }
+  #panel.following form, #panel.following #routes, #panel.following .primary, #panel.following #status { display: none; }
+  #panel.following #runbar { margin-top: 14px; }
+  #panel.following #grab { display: none; }
+  .route .actions button { padding: 5px 9px; font-size: 13px; }
   #panel.min #routes:empty + .primary { margin-top: 4px; }
   .leaflet-control-zoom { display: none; }
   .leaflet-top { top: calc(env(safe-area-inset-top) + 68px); }
@@ -246,14 +282,25 @@ footer { margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--soft)
 
 <aside id="panel">
   <button type="button" id="grab" aria-label="Show or hide the controls"><span></span></button>
+  <div id="runbar" hidden>
+    <div><div id="runMain">Waiting for GPS…</div><div id="runSub"></div></div>
+    <button type="button" class="plain" id="runStop">Stop</button>
+  </div>
   <header><h1>Loop <span>Run</span> Planner</h1></header>
   <div id="startSlot"></div>
 
   <form id="form">
+    <p id="wx" hidden></p>
     <div class="dist">
       <div>
-        <label class="label" for="km">Distance</label>
-        <div class="big"><input id="km" type="number" inputmode="decimal" min="1" max="60" step="0.5" value="8" required><span class="unit">km</span></div>
+        <div class="dist-head">
+          <label class="label" for="km" id="kmLabel">Distance</label>
+          <span class="seg" role="group" aria-label="Plan by distance or by time">
+            <button type="button" id="modeKm" class="on">km</button><button type="button" id="modeMin">min</button>
+          </span>
+        </div>
+        <div class="big"><input id="km" type="number" inputmode="decimal" min="1" max="60" step="0.5" value="8" required><span class="unit" id="unit">km</span></div>
+        <small id="kmHelp" hidden></small>
       </div>
       <div class="steps">
         <button type="button" class="step" id="less" aria-label="Half a kilometre shorter">−</button>
@@ -279,6 +326,15 @@ footer { margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--soft)
             <input id="pace" type="text" value="6:00" inputmode="numeric" pattern="\d{1,2}:\d{2}">
           </label>
         </div>
+        <div class="grid2">
+          <label class="field"><span class="label">Hills</span>
+            <select id="hills"><option value="any">No preference</option><option value="flat">Prefer flat</option><option value="hilly">Prefer hilly</option></select>
+          </label>
+          <label class="field"><span class="label">Surface</span>
+            <select id="surface"><option value="any">No preference</option><option value="paved">Prefer paved</option><option value="trails">Prefer trails</option></select>
+          </label>
+        </div>
+        <label class="check"><input type="checkbox" id="fresh"><span>Avoid streets from my saved routes</span></label>
         <label class="field"><span class="label">Appearance</span>
           <select id="themeMode">
             <option value="auto">Automatic: dark before 08:00 and after 20:00</option>
@@ -288,6 +344,16 @@ footer { margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--soft)
         </label>
         <button type="button" class="plain" id="viaBtn">Add a must-pass point</button>
         <small id="viaHelp">Pick a park or spot that every route has to go through.</small>
+      </div>
+    </details>
+
+    <details id="saved">
+      <summary>Saved routes and recent searches</summary>
+      <div class="more">
+        <div class="label">Saved routes</div>
+        <ul class="saved-list" id="favList"></ul>
+        <div class="label">Recent searches</div>
+        <ul class="saved-list" id="histList"></ul>
       </div>
     </details>
   </form>
@@ -302,8 +368,8 @@ footer { margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--soft)
     <li style="--c:var(--busy)"><i></i>Busy road</li>
     <li style="--c:var(--lit)" id="legendLit" hidden><i></i>Street-lit</li>
   </ul>
-  <p class="hint" id="hint" hidden>Routes are sorted nicest first. Press Find routes again for a fresh set.</p>
-  <footer>Routing on walking paths by OSRM (FOSSGIS). Scenery and lighting from OpenStreetMap via Overpass, so it is only as complete as the map data. Check a route before you trust it at night or in bad weather.</footer>
+  <p class="hint" id="hint" hidden>Routes are sorted nicest first. Select one and drag a white dot on its line to reshape it. Press Find routes again for a fresh set.</p>
+  <footer>Routing on walking paths by OSRM (FOSSGIS). Scenery, lighting, surfaces, water taps and toilets from OpenStreetMap via Overpass, so they are only as complete as the map data. Elevation and weather by Open-Meteo. Check a route before you trust it at night or in bad weather.</footer>
 </aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -368,7 +434,8 @@ function parseLatLon(s) {
 const themeForHour = h => (h < 8 || h >= 20 ? "night" : "day");
 
 /* ================= scenery (pure) ================= */
-const PARK = 1, NATURE = 2, WATER = 4, BUSY = 8, LIT = 16;
+const PARK = 1, NATURE = 2, WATER = 4, BUSY = 8, LIT = 16, UNPAVED = 32, USED = 64;
+const UNPAVED_RE = /^(unpaved|gravel|fine_gravel|compacted|dirt|ground|earth|grass|sand|mud|woodchips|pebblestone)$/;
 
 /* Join the open pieces of a multipolygon's outer boundary into closed rings. */
 function assembleRings(segs) {
@@ -403,7 +470,7 @@ function buildScenery(elements, origin, radius, cell) {
   const kx = Math.cos(rad(origin[0])) * 111320, ky = 110540;
   const toXY = p => [((p[1] - origin[1]) * kx + radius) / cell, ((p[0] - origin[0]) * ky + radius) / cell];
   const toLL = (gx, gy) => [origin[0] + (gy * cell - radius) / ky, origin[1] + (gx * cell - radius) / kx];
-  const attractors = [], features = [];
+  const attractors = [], features = [], pois = [];
   const mark = (i, j, bit) => { if (i >= 0 && j >= 0 && i < n && j < n) grid[j * n + i] |= bit; };
 
   function fill(rings, bit, name, attract) {
@@ -446,6 +513,10 @@ function buildScenery(elements, origin, radius, cell) {
   for (const el of elements) {
     const t = el.tags || {};
     let rings = null, pts = null;
+    if (el.type === "node") {
+      if (t.amenity && el.lat != null) pois.push({ p: [el.lat, el.lon], kind: t.amenity === "toilets" ? "toilet" : "water" });
+      continue;
+    }
     if (el.type === "way" && el.geometry) pts = ll(el.geometry);
     else if (el.type === "relation" && el.members)
       rings = assembleRings(el.members.filter(m => m.type === "way" && m.role !== "inner" && m.geometry).map(m => ll(m.geometry)));
@@ -454,6 +525,7 @@ function buildScenery(elements, origin, radius, cell) {
       if (!pts) continue;
       if (t.lit === "yes") line(pts, LIT, 0);
       if (/^(trunk|primary|secondary)$/.test(t.highway)) line(pts, BUSY, 0);
+      if (UNPAVED_RE.test(t.surface || "") || (t.highway === "track" && !t.surface)) line(pts, UNPAVED, 0);
       continue;
     }
     if (t.access === "private" || t.access === "no") continue;
@@ -478,20 +550,24 @@ function buildScenery(elements, origin, radius, cell) {
       features.push({ bit: park ? PARK : NATURE, rings });
     }
   }
-  for (const a of attractors) { // is there a street-lit way within about 100 m?
+  for (const a of attractors) { // is there a street-lit way, or an unpaved path, within about 100 m?
     const g = toXY(a.p), i = Math.floor(g[0]), j = Math.floor(g[1]);
-    a.lit = false;
-    for (let dj = -3; dj <= 3 && !a.lit; dj++) for (let di = -3; di <= 3; di++) {
+    a.lit = false; a.trail = false;
+    for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) {
       const x = i + di, y = j + dj;
-      if (x >= 0 && y >= 0 && x < n && y < n && (grid[y * n + x] & LIT)) { a.lit = true; break; }
+      if (x < 0 || y < 0 || x >= n || y >= n) continue;
+      if (grid[y * n + x] & LIT) a.lit = true;
+      if (grid[y * n + x] & UNPAVED) a.trail = true;
     }
   }
-  return { grid, n, cell, toXY, attractors, features, origin, radius };
+  return { grid, n, cell, toXY, attractors, features, pois, origin, radius,
+    markLine: (pts, bit) => line(pts, bit, 1),
+    clearBit: bit => { for (let i = 0; i < grid.length; i++) grid[i] &= ~bit; } };
 }
 
 /* Share of a route's length in each kind of surroundings (each stretch counted once: park, else nature, else waterside). */
 function scoreRoute(pts, sc, mask) {
-  const out = { park: 0, nature: 0, water: 0, busy: 0, lit: 0, scenic: 0 };
+  const out = { park: 0, nature: 0, water: 0, busy: 0, lit: 0, unpaved: 0, seen: 0, scenic: 0 };
   if (!sc) return out;
   let total = 0;
   for (let k = 1; k < pts.length; k++) {
@@ -507,18 +583,21 @@ function scoreRoute(pts, sc, mask) {
       if (m & PARK) out.park += w; else if (m & NATURE) out.nature += w; else if (m & WATER) out.water += w;
       else if (v & BUSY) out.busy += w;
       if (v & LIT) out.lit += w;
+      if (v & UNPAVED) out.unpaved += w;
+      if (v & USED) out.seen += w;
     }
   }
-  if (total) for (const k of ["park", "nature", "water", "busy", "lit"]) out[k] /= total;
+  if (total) for (const k of ["park", "nature", "water", "busy", "lit", "unpaved", "seen"]) out[k] /= total;
   out.scenic = out.park + out.nature + out.water;
   return out;
 }
-function nearestAttractor(sc, p, reach, mask, litOnly) {
+/* `ok` is an optional extra test an attractor must pass (street-lit, near a trail). */
+function nearestAttractor(sc, p, reach, mask, ok) {
   if (!sc) return null;
   let best = null, bestD = reach;
   const dLat = reach / 110540, dLon = reach / (111320 * Math.cos(rad(p[0])));
   for (const a of sc.attractors) {
-    if (!(a.bit & mask) || (litOnly && !a.lit)) continue;
+    if (!(a.bit & mask) || (ok && !ok(a))) continue;
     if (Math.abs(a.p[0] - p[0]) > dLat || Math.abs(a.p[1] - p[1]) > dLon) continue;
     const d = haversine(a.p, p);
     if (d < bestD) { bestD = d; best = a; }
@@ -526,14 +605,14 @@ function nearestAttractor(sc, p, reach, mask, litOnly) {
   return best;
 }
 /* Rank 16 compass directions by how much scenery a loop that way could reach; return the best n, spread apart. */
-function pickBearings(sc, start, radius, n, mask, litOnly, used, rnd) {
+function pickBearings(sc, start, radius, n, mask, ok, used, rnd) {
   const cands = [];
   for (let k = 0; k < 16; k++) {
     const b = k * 22.5;
     let s = 0;
     if (sc) for (const w of loopWaypoints(start, b, radius, true)) {
       let c = 0;
-      for (const a of sc.attractors) if ((a.bit & mask) && (!litOnly || a.lit) && haversine(a.p, w) < radius * 0.45) c++;
+      for (const a of sc.attractors) if ((a.bit & mask) && (!ok || ok(a)) && haversine(a.p, w) < radius * 0.45) c++;
       s += Math.log(1 + c);
     }
     cands.push({ b, k, s: (s + 0.2) * (0.8 + 0.4 * rnd()) * (used.has(k) ? 0.35 : 1) });
@@ -555,7 +634,92 @@ function chooseCandidate(cands, target, key) {
   const closest = cands.reduce((a, b) => err(b) < err(a) ? b : a, cands[0]);
   return closest && err(closest) <= 0.2 ? closest : null;
 }
-if (typeof module !== "undefined") module.exports = { haversine, destination, bearingOf, pathLength, loopWaypoints, trimSpurs, compass, parsePace, fmtTime,
+
+/* ================= route helpers (pure) ================= */
+/* Polyline text format, 5 decimals: compact enough for share links and saved routes. */
+function encodePolyline(pts) {
+  let out = "", pl = 0, pn = 0;
+  for (const p of pts) {
+    const la = Math.round(p[0] * 1e5), ln = Math.round(p[1] * 1e5);
+    for (let v of [la - pl, ln - pn]) {
+      v = v < 0 ? ~(v << 1) : v << 1;
+      while (v >= 0x20) { out += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; }
+      out += String.fromCharCode(v + 63);
+    }
+    pl = la; pn = ln;
+  }
+  return out;
+}
+function decodePolyline(s) {
+  const pts = [];
+  let i = 0, la = 0, ln = 0;
+  while (i < s.length) {
+    for (let k = 0; k < 2; k++) {
+      let r = 0, sh = 0, b;
+      do { b = s.charCodeAt(i++) - 63; r |= (b & 0x1f) << sh; sh += 5; } while (b >= 0x20 && i < s.length);
+      const d = (r & 1) ? ~(r >> 1) : (r >> 1);
+      if (k === 0) la += d; else ln += d;
+    }
+    pts.push([la / 1e5, ln / 1e5]);
+  }
+  return pts;
+}
+/* Drop points that deviate less than `tol` metres from the line (Douglas-Peucker). */
+function simplify(pts, tol) {
+  if (pts.length < 3) return pts.slice();
+  const kx = Math.cos(rad(pts[0][0])) * 111320, ky = 110540, xy = pts.map(p => [p[1] * kx, p[0] * ky]);
+  const keep = new Uint8Array(pts.length), stack = [[0, pts.length - 1]];
+  keep[0] = keep[pts.length - 1] = 1;
+  while (stack.length) {
+    const [a, b] = stack.pop(), ax = xy[a][0], ay = xy[a][1], dx = xy[b][0] - ax, dy = xy[b][1] - ay, len = dx * dx + dy * dy;
+    let md = 0, mi = -1;
+    for (let i = a + 1; i < b; i++) {
+      const t = len ? Math.max(0, Math.min(1, ((xy[i][0] - ax) * dx + (xy[i][1] - ay) * dy) / len)) : 0;
+      const d = Math.hypot(xy[i][0] - ax - t * dx, xy[i][1] - ay - t * dy);
+      if (d > md) { md = d; mi = i; }
+    }
+    if (md > tol) { keep[mi] = 1; stack.push([a, mi], [mi, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+function cumulative(pts) {
+  const c = [0];
+  for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + haversine(pts[i - 1], pts[i]));
+  return c;
+}
+/* The point `d` metres along the line. */
+function pointAt(pts, cum, d) {
+  if (d <= 0) return pts[0];
+  for (let i = 1; i < pts.length; i++) if (cum[i] >= d) {
+    const f = cum[i] > cum[i - 1] ? (d - cum[i - 1]) / (cum[i] - cum[i - 1]) : 0;
+    return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
+  }
+  return pts[pts.length - 1];
+}
+function sampleAlong(pts, n) {
+  const cum = cumulative(pts), total = cum[cum.length - 1], out = [];
+  for (let k = 0; k < n; k++) out.push(pointAt(pts, cum, total * k / (n - 1)));
+  return out;
+}
+/* Nearest route vertex to p, optionally only between `lo` and `hi` metres along the route. */
+function nearestOnRoute(pts, cum, p, lo, hi) {
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    if (lo != null && (cum[i] < lo || cum[i] > hi)) continue;
+    const d = haversine(pts[i], p);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return { i: best, d: bestD, along: best >= 0 ? cum[best] : 0 };
+}
+/* Total climb in metres from an elevation profile; small wobbles under 2 m are ignored as noise. */
+function climbOf(e) {
+  if (!e || e.length < 2) return 0;
+  const s = e.map((v, i) => (e[Math.max(0, i - 1)] + v + e[Math.min(e.length - 1, i + 1)]) / 3);
+  let up = 0, ref = s[0];
+  for (const v of s) { if (v > ref + 2) { up += v - ref; ref = v; } else if (v < ref - 2) ref = v; }
+  return Math.round(up);
+}
+if (typeof module !== "undefined") module.exports = { encodePolyline, decodePolyline, simplify, cumulative, pointAt, sampleAlong, nearestOnRoute, climbOf, UNPAVED, USED, haversine, destination, bearingOf, pathLength, loopWaypoints, trimSpurs, compass, parsePace, fmtTime,
   parseLatLon, themeForHour, assembleRings, buildScenery, scoreRoute, nearestAttractor, pickBearings, chooseCandidate, PARK, NATURE, WATER, BUSY, LIT };
 
 /* ================= app ================= */
@@ -651,6 +815,12 @@ if (typeof L !== "undefined") (function () {
   /* ---------- state ---------- */
   let start = null, startMarker = null, via = null, viaMarker = null, picking = false;
   let routes = [], active = -1, runId = 0, scenery = null, sceneryKey = null, lastRun = null, viaRound = 0, scrolling = false;
+  let follow = null, unitMode = "km", wx = null, wxKey = null;
+  const handleLayer = L.layerGroup().addTo(map), poiLayer = L.layerGroup().addTo(map);
+  const store = {
+    get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
   const usedBearings = new Set();
   const colorOf = i => PALETTE[root.dataset.theme === "night" ? "night" : "day"][i % 6];
 
@@ -679,10 +849,10 @@ if (typeof L !== "undefined") (function () {
     $("start").dataset.label = label || "";
     if (fly) showStart(p);
     if (!routes.length) setStatus("Start set. Choose a distance and press Find routes.");
-    save();
+    save(); loadWeather();
   }
   function save() {
-    try { localStorage.setItem("lrp", JSON.stringify({ p: start, label: $("start").value, km: $("km").value, pace: $("pace").value })); } catch (e) {}
+    store.set("lrp", { p: start, label: $("start").value, km: $("km").value, unit: unitMode, pace: $("pace").value });
   }
   function setVia(p) {
     via = p; viaRound = 0;
@@ -736,9 +906,10 @@ if (typeof L !== "undefined") (function () {
   }
 
   /* ---------- scenery data ---------- */
-  async function loadScenery(target, evening) {
+  async function loadScenery(target, evening, surf) {
     const radius = Math.round(Math.min(7000, Math.max(1500, target * 0.45)));
-    if (scenery && sceneryKey && haversine(sceneryKey.p, start) < 400 && radius <= sceneryKey.radius && (!evening || sceneryKey.evening)) return scenery;
+    if (scenery && sceneryKey && haversine(sceneryKey.p, start) < 400 && radius <= sceneryKey.radius &&
+        (!evening || sceneryKey.evening) && (!surf || sceneryKey.surf)) return scenery;
     const a = `(around:${radius},${start[0].toFixed(5)},${start[1].toFixed(5)});`;
     const q = `[out:json][timeout:40];(` +
       `way["leisure"~"^(park|nature_reserve)$"]${a}relation["leisure"~"^(park|nature_reserve)$"]${a}` +
@@ -747,7 +918,10 @@ if (typeof L !== "undefined") (function () {
       `way["natural"~"^(wood|heath|scrub|grassland|water)$"]${a}relation["natural"~"^(wood|heath|water)$"]${a}` +
       `way["waterway"~"^(river|canal)$"]${a}` +
       `way["highway"~"^(trunk|primary|secondary)$"]${a}` +
-      (evening ? `way["highway"]["lit"="yes"]${a}` : "") + `);out geom qt;`;
+      `node["amenity"~"^(drinking_water|toilets)$"]${a}` +
+      (evening ? `way["highway"]["lit"="yes"]${a}` : "") +
+      (surf ? `way["highway"]["surface"~"^(unpaved|gravel|fine_gravel|compacted|dirt|ground|earth|grass|sand|mud|woodchips|pebblestone)$"]${a}way["highway"="track"][!"surface"]${a}` : "") +
+      `);out geom qt;`;
     let data = null;
     for (const url of OVERPASS) {
       try {
@@ -758,7 +932,7 @@ if (typeof L !== "undefined") (function () {
     }
     if (!data || !data.elements) return null;
     scenery = buildScenery(data.elements, start, radius);
-    sceneryKey = { p: start, radius, evening };
+    sceneryKey = { p: start, radius, evening, surf };
     drawScenery();
     return scenery;
   }
@@ -792,13 +966,13 @@ if (typeof L !== "undefined") (function () {
       if (opt.id !== runId) return null;
       const names = [];
       const points = shape(size).map(w => {
-        const a = w.fixed ? null : nearestAttractor(scenery, w.p, Math.max(250, w.reach), opt.mask, opt.evening);
+        const a = w.fixed ? null : nearestAttractor(scenery, w.p, Math.max(250, w.reach), opt.mask, opt.ok);
         if (a && a.name && !names.includes(a.name)) names.push(a.name);
         return a ? a.p : w.p;
       });
       const res = await fetchRoute(points);
       res.share = scoreRoute(res.pts, scenery, opt.mask);
-      res.names = names; res.rank = opt.rank(res.share);
+      res.names = names; res.rank = opt.rank(res.share); res.way = points;
       cands.push(res);
       if (Math.abs(res.dist - opt.target) / opt.target < 0.03) break;
       size = resize(size, res.dist);
@@ -831,7 +1005,7 @@ if (typeof L !== "undefined") (function () {
 
   /* ---------- drawing ---------- */
   function draw() {
-    routeLayer.clearLayers(); tickLayer.clearLayers();
+    routeLayer.clearLayers(); tickLayer.clearLayers(); handleLayer.clearLayers(); poiLayer.clearLayers();
     const night = root.dataset.theme === "night";
     routes.forEach((r, i) => {
       if (i === active) return;
@@ -844,13 +1018,21 @@ if (typeof L !== "undefined") (function () {
     if (night) L.polyline(r.pts, { color: c, weight: 16, opacity: 0.22, interactive: false }).addTo(routeLayer);
     else L.polyline(r.pts, { color: "#fff", weight: 9, opacity: 0.9, interactive: false }).addTo(routeLayer);
     L.polyline(r.pts, { color: c, weight: 5, interactive: false }).addTo(routeLayer);
-    let run = 0, next = 1000;
-    for (let i = 1; i < r.pts.length; i++) {
-      run += haversine(r.pts[i - 1], r.pts[i]);
-      if (run >= next) {
-        L.marker(r.pts[i], { interactive: false, icon: L.divIcon({ className: "", iconSize: [0, 0],
-          html: `<div class="km-tick" style="background:${c}">${next / 1000}</div>` }) }).addTo(tickLayer);
-        next += 1000;
+    const cum = cumulative(r.pts);
+    for (let km = 1; km * 1000 < cum[cum.length - 1]; km++) {
+      L.marker(pointAt(r.pts, cum, km * 1000), { interactive: false, icon: L.divIcon({ className: "", iconSize: [0, 0],
+        html: `<div class="km-tick" style="background:${c}">${km}</div>` }) }).addTo(tickLayer);
+    }
+    /* water taps and toilets close to this route */
+    for (const q of r.poiList || []) L.marker(q.p, { interactive: false, icon: L.divIcon({ className: "", iconSize: [0, 0],
+      html: `<div class="poi ${q.kind}">${q.kind === "water" ? "Water" : "WC"}</div>` }) }).addTo(poiLayer);
+    /* white dots that can be dragged to pull the route somewhere else */
+    if (r.way && !follow && !$("go").disabled) {
+      for (let k = 1; k <= 5; k++) {
+        const f = k / 6;
+        const m = L.marker(pointAt(r.pts, cum, f * r.dist), { draggable: true, zIndexOffset: 800, title: "Drag to reshape the route",
+          icon: L.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11], html: `<div class="handle" style="border-color:${c}"></div>` }) }).addTo(handleLayer);
+        m.on("dragend", () => reshape(r, f, m.getLatLng()));
       }
     }
   }
@@ -858,7 +1040,7 @@ if (typeof L !== "undefined") (function () {
     active = i;
     const cards = [...$("routes").children];
     cards.forEach((li, k) => li.classList.toggle("active", k === i));
-    draw();
+    draw(); showWeather();
     if (!fromScroll && cards[i]) {
       scrolling = true;
       cards[i].scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
@@ -866,6 +1048,224 @@ if (typeof L !== "undefined") (function () {
     }
     if (fit && routes[i]) map.fitBounds(L.latLngBounds(routes[i].pts), fitOptions());
   }
+
+  /* ---------- reshape: route again through the spot a dot was dragged to ---------- */
+  async function reshape(r, f, ll) {
+    setStatus("Reshaping the route…");
+    try {
+      const cum = cumulative(r.pts), last = r.way.length - 1;
+      const at = r.way.map((w, i) => i === 0 ? 0 : i === last ? 1 : nearestOnRoute(r.pts, cum, w).along / r.dist);
+      let k = 1;
+      while (k < last && at[k] <= f) k++;
+      const way = r.way.slice(0, k).concat([[ll.lat, ll.lng]], r.way.slice(k));
+      const res = await fetchRoute(way);
+      r.pts = res.pts; r.dist = res.dist; r.way = way; r.favId = null;
+      if (r.scen) r.share = scoreRoute(r.pts, scenery, lastRun.mask == null ? 7 : lastRun.mask);
+      nearPois(r);
+      await elevate(r);
+      renderCards(); draw();
+      setStatus(`Route reshaped. It is now ${(r.dist / 1000).toFixed(2)} km.`);
+    } catch (e) {
+      console.warn(e); draw();
+      setStatus("Could not route through that spot. Try a point on a path or street.", true);
+    }
+  }
+
+  /* ---------- elevation ---------- */
+  async function elevate(r) {
+    try {
+      const pts = sampleAlong(r.pts, Math.min(100, Math.max(12, Math.round(r.dist / 90))));
+      const res = await fetch("https://api.open-meteo.com/v1/elevation?latitude=" + pts.map(p => p[0].toFixed(5)).join(",") +
+        "&longitude=" + pts.map(p => p[1].toFixed(5)).join(","));
+      const j = res.ok ? await res.json() : null;
+      r.elev = j && j.elevation && j.elevation.length === pts.length ? { profile: j.elevation, climb: climbOf(j.elevation) } : null;
+    } catch (e) { r.elev = null; }
+  }
+  function spark(r) {
+    const e = r.elev.profile, lo = Math.min(...e), span = Math.max(12, Math.max(...e) - lo);
+    const xy = e.map((v, i) => `${(i / (e.length - 1) * 100).toFixed(1)} ${(22 - (v - lo) / span * 19).toFixed(1)}`);
+    return `<svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" role="img" aria-label="Height profile, ${r.elev.climb} metres of climbing">` +
+      `<path class="area" d="M0 24L${xy.join("L")}L100 24Z"/><path class="line" d="M${xy.join("L")}"/></svg>`;
+  }
+  /* Hill preference: nudge the ranking by metres climbed per kilometre. */
+  function applyHills(r) {
+    const pref = $("hills").value, adj = r.elev ? Math.min(0.5, r.elev.climb / (r.dist / 1000) / 40) : 0;
+    r.rank = (r.baseRank == null ? r.rank : r.baseRank) + (pref === "flat" ? -adj : pref === "hilly" ? adj : 0);
+  }
+
+  /* ---------- water taps and toilets within about 120 m of a route ---------- */
+  function nearPois(r) {
+    r.poiList = [];
+    if (!scenery || !r.scen) return;
+    for (const q of scenery.pois) {
+      for (let i = 0; i < r.pts.length; i += 2) if (haversine(r.pts[i], q.p) < 120) { r.poiList.push(q); break; }
+    }
+  }
+
+  /* ---------- weather and daylight (Open-Meteo) ---------- */
+  async function loadWeather() {
+    if (!start) return;
+    if (wxKey && haversine(wxKey.p, start) < 2000 && Date.now() - wxKey.t < 30 * 60000) return showWeather();
+    try {
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${start[0].toFixed(3)}&longitude=${start[1].toFixed(3)}` +
+        "&current=temperature_2m,wind_speed_10m&hourly=precipitation_probability&daily=sunrise,sunset&timeformat=unixtime&timezone=auto&forecast_days=2");
+      if (!r.ok) return;
+      wx = await r.json(); wxKey = { p: start, t: Date.now() };
+      showWeather();
+    } catch (e) {}
+  }
+  function showWeather() {
+    const el = $("wx");
+    if (!wx || !wx.current || !wx.daily) { el.hidden = true; return; }
+    const now = Date.now() / 1000, off = wx.utc_offset_seconds || 0;
+    const clock = t => new Date((t + off) * 1000).toISOString().slice(11, 16);
+    let rain = 0;
+    if (wx.hourly) wx.hourly.time.forEach((t, i) => { if (t > now - 3600 && t < now + 3 * 3600) rain = Math.max(rain, wx.hourly.precipitation_probability[i] || 0); });
+    const rise = wx.daily.sunrise, set = wx.daily.sunset;
+    const pace = parsePace($("pace").value) || 360, r = routes[active];
+    const finish = now + (r ? r.dist : targetMeters() || 0) / 1000 * pace;
+    const dark = now < rise[0] || finish > set[0];
+    const sun = now < rise[0] ? `sunrise ${clock(rise[0])}` : now < set[0] ? `sunset ${clock(set[0])}` : `sunrise ${clock(rise[1] || rise[0])}`;
+    el.textContent = `${Math.round(wx.current.temperature_2m)}° · rain ${Math.round(rain)}% · wind ${Math.round(wx.current.wind_speed_10m)} km/h · ${sun}`;
+    if (dark && !$("evening").checked) {
+      const b = document.createElement("strong");
+      b.textContent = " · It will be dark on this run: consider Lit paths.";
+      el.appendChild(b);
+    }
+    el.hidden = false;
+  }
+  $("evening").addEventListener("change", showWeather);
+
+  /* ---------- saved routes, recent searches, share links ---------- */
+  const favs = () => store.get("lrp-favs", []);
+  function toggleFav(r) {
+    let list = favs();
+    if (r.favId && list.some(f => f.id === r.favId)) { list = list.filter(f => f.id !== r.favId); r.favId = null; }
+    else {
+      r.favId = Date.now().toString(36);
+      list.unshift({ id: r.favId, name: r.name, names: r.names || [], line: encodePolyline(r.pts), way: r.way || null, share: r.share || null,
+        scen: !!r.scen, from: $("start").value, ts: Date.now() });
+      list = list.slice(0, 40);
+    }
+    store.set("lrp-favs", list); renderSaved(); renderCards();
+  }
+  /* Show one stored or shared route on its own. */
+  function showSingle(r, label, note) {
+    runId++; $("go").disabled = false;
+    routes = [r]; active = -1;
+    lastRun = { target: r.dist, paceSec: parsePace($("pace").value), evening: false, single: true };
+    setStart(r.pts[0], label || null, false);
+    renderCards(); setStatus(note); $("hint").hidden = true; $("legend").hidden = !r.scen;
+    if (phone.matches) panel.classList.add("min");
+    setTimeout(() => select(0, true), 80);
+    elevate(r).then(() => { if (routes[0] === r) renderCards(); });
+  }
+  function openFav(f) {
+    const pts = decodePolyline(f.line);
+    showSingle({ pts, dist: pathLength(pts), name: f.name, names: f.names || [], share: f.share || scoreRoute(pts, null, 0), scen: false,
+      way: f.way || null, favId: f.id, rank: 0, saved: f.share && f.scen ? f.share : null }, f.from, "Saved route opened.");
+  }
+  function pushHistory() {
+    const item = { label: $("start").value, p: start, unit: unitMode, val: $("km").value, ts: Date.now() };
+    const list = store.get("lrp-hist", []).filter(h => !(h.label === item.label && h.unit === item.unit && h.val === item.val));
+    list.unshift(item); store.set("lrp-hist", list.slice(0, 8)); renderSaved();
+  }
+  function renderSaved() {
+    const row = (title, sub, open, del) => {
+      const li = document.createElement("li"), b = document.createElement("button");
+      b.type = "button"; b.className = "open";
+      const t = document.createElement("b"), s2 = document.createElement("span");
+      t.textContent = title; s2.textContent = sub; b.append(t, s2); b.addEventListener("click", open); li.appendChild(b);
+      if (del) {
+        const d = document.createElement("button");
+        d.type = "button"; d.className = "del"; d.textContent = "×"; d.setAttribute("aria-label", "Remove " + title);
+        d.addEventListener("click", del); li.appendChild(d);
+      }
+      return li;
+    };
+    const none = text => { const li = document.createElement("li"); li.className = "none"; li.textContent = text; return li; };
+    const fl = $("favList"), hl = $("histList"), day = t => new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    fl.innerHTML = ""; hl.innerHTML = "";
+    const list = favs();
+    if (!list.length) fl.appendChild(none("Nothing saved yet. Press Save on a route you like."));
+    for (const f of list) fl.appendChild(row(f.name, `${(pathLength(decodePolyline(f.line)) / 1000).toFixed(1)} km · from ${f.from || "map point"} · ${day(f.ts)}`,
+      () => openFav(f), () => { store.set("lrp-favs", favs().filter(x => x.id !== f.id)); renderSaved(); renderCards(); }));
+    const hist = store.get("lrp-hist", []);
+    if (!hist.length) hl.appendChild(none("Your last searches will appear here."));
+    for (const h of hist) hl.appendChild(row(h.label, `${h.val} ${h.unit} · ${day(h.ts)}`, () => {
+      setStart(h.p, parseLatLon(h.label) ? null : h.label, true);
+      setMode(h.unit, true); $("km").value = h.val; sizeKm(); updateHelp();
+      $("form").requestSubmit();
+    }));
+  }
+  function shareUrl(r) {
+    return location.origin + location.pathname + "#r=" + encodeURIComponent(encodePolyline(simplify(r.pts, 4))) + "&n=" + encodeURIComponent(r.name);
+  }
+  async function shareRoute(r) {
+    const url = shareUrl(r), text = `${r.name}, ${(r.dist / 1000).toFixed(1)} km`;
+    try {
+      if (touch && navigator.share) { await navigator.share({ title: "Loop Run Planner", text, url }); return; }
+    } catch (e) { if (e && e.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(url); setStatus("Link copied. Paste it into a message to share this route."); }
+    catch (e) { setStatus("Copy this link to share the route: " + url); }
+  }
+  function loadShared() {
+    const m = /[#&]r=([^&]+)/.exec(location.hash), n = /[#&]n=([^&]+)/.exec(location.hash);
+    if (!m) return false;
+    try {
+      const pts = decodePolyline(decodeURIComponent(m[1]));
+      if (pts.length < 2 || !pts.every(p => Math.abs(p[0]) <= 90 && Math.abs(p[1]) <= 180)) return false;
+      history.replaceState(null, "", location.pathname);
+      showSingle({ pts, dist: pathLength(pts), name: n ? decodeURIComponent(n[1]).slice(0, 60) : "Shared route", names: [], share: scoreRoute(pts, null, 0),
+        scen: false, rank: 0 }, null, "Shared route opened.");
+      return true;
+    } catch (e) { return false; }
+  }
+  window.addEventListener("hashchange", loadShared);
+
+  /* ---------- follow along: a live dot and distance to go while running ---------- */
+  async function wake() {
+    try { if (follow && navigator.wakeLock) follow.lock = await navigator.wakeLock.request("screen"); } catch (e) {}
+  }
+  function startFollow(r) {
+    if (!navigator.geolocation) { setStatus("This browser cannot share your location, so it cannot follow your run.", true); return; }
+    stopFollow();
+    follow = { r, cum: cumulative(r.pts), along: 0, marker: null, lock: null };
+    follow.id = navigator.geolocation.watchPosition(onPosition, () => {
+      $("runSub").textContent = "No GPS signal. Check that location is allowed for this app."; $("runSub").classList.add("off");
+    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+    $("runMain").textContent = "Waiting for GPS…"; $("runSub").textContent = r.name; $("runSub").classList.remove("off");
+    $("runbar").hidden = false; panel.classList.add("following");
+    wake(); draw();
+    map.fitBounds(L.latLngBounds(r.pts), fitOptions());
+  }
+  function onPosition(pos) {
+    if (!follow) return;
+    const p = [pos.coords.latitude, pos.coords.longitude], f = follow, total = f.r.dist;
+    if (!f.marker) f.marker = L.marker(p, { interactive: false, zIndexOffset: 1200, icon: pin("me") }).addTo(map);
+    else f.marker.setLatLng(p);
+    /* a loop starts and ends at the same spot, so look just ahead of the last known position first */
+    let n = nearestOnRoute(f.r.pts, f.cum, p, f.along - 200, f.along + 600);
+    if (n.i < 0 || n.d > 150) n = nearestOnRoute(f.r.pts, f.cum, p);
+    f.along = n.along;
+    const off = n.d > Math.max(50, pos.coords.accuracy || 0);
+    $("runMain").textContent = `${(n.along / 1000).toFixed(2)} km done · ${(Math.max(0, total - n.along) / 1000).toFixed(2)} km to go`;
+    $("runSub").textContent = off ? `Off the route by about ${Math.round(n.d)} m` : "On the route";
+    $("runSub").classList.toggle("off", off);
+    if (!map.getBounds().pad(-0.25).contains(p)) map.panTo(p);
+  }
+  function stopFollow() {
+    if (!follow) return;
+    navigator.geolocation.clearWatch(follow.id);
+    if (follow.marker) follow.marker.remove();
+    if (follow.lock) follow.lock.release().catch(() => {});
+    follow = null;
+    $("runbar").hidden = true; panel.classList.remove("following");
+    draw();
+  }
+  $("runStop").addEventListener("click", stopFollow);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && follow) wake(); });
+
   /* Phone: the route cards are a swipe carousel; the card that settles in the middle becomes the selected route. */
   let scrollTimer = 0;
   $("routes").addEventListener("scroll", () => {
@@ -902,31 +1302,39 @@ if (typeof L !== "undefined") (function () {
     const list = $("routes");
     list.innerHTML = "";
     if (!lastRun) return;
-    const { target, paceSec, evening } = lastRun;
+    const { target, paceSec, evening, single, surf, fresh } = lastRun, saved = favs();
     routes.forEach((r, i) => {
       const li = document.createElement("li");
       li.className = "route" + (i === active ? " active" : ""); li.tabIndex = 0;
       li.style.setProperty("--rc", colorOf(i));
-      const diff = r.dist - target, sh = r.share, bits = [];
-      if (scenery) {
+      const diff = r.dist - target, sh = r.saved || r.share, shown = r.scen || !!r.saved, bits = [];
+      if (shown) {
         bits.push(`${pct(sh.scenic)}% scenic`);
         if (evening) bits.push(`${pct(sh.lit)}% lit`);
         if (sh.busy >= 0.005) bits.push(`${pct(sh.busy)}% busy road`);
+        if (surf && surf !== "any") bits.push(`${pct(sh.unpaved)}% unpaved`);
+        if (fresh) bits.push(`${pct(1 - sh.seen)}% new to you`);
       }
-      bits.push(Math.round(diff) ? `${diff > 0 ? "+" : "−"}${Math.abs(Math.round(diff))} m` : "on target");
+      if (r.elev) bits.push(`${r.elev.climb} m climb`);
+      if (!single) bits.push(Math.round(diff) ? `${diff > 0 ? "+" : "−"}${Math.abs(Math.round(diff))} m` : "on target");
       if (paceSec) bits.push(fmtTime(r.dist / 1000 * paceSec));
+      const taps = (r.poiList || []).filter(q => q.kind === "water").length, wcs = (r.poiList || []).length - taps;
+      if (taps) bits.push(`${taps} water tap${taps > 1 ? "s" : ""}`);
+      if (wcs) bits.push(`${wcs} toilet${wcs > 1 ? "s" : ""}`);
       const seg = (v, c) => v > 0.004 ? `<i style="width:${(v * 100).toFixed(1)}%;background:var(${c})"></i>` : "";
-      const bar = scenery ? `<div class="bar" title="Share of the route by surroundings">${seg(sh.park, "--park")}${seg(sh.nature, "--nature")}${seg(sh.water, "--water")}${seg(sh.busy, "--busy")}</div>` +
+      const bar = shown ? `<div class="bar" title="Share of the route by surroundings">${seg(sh.park, "--park")}${seg(sh.nature, "--nature")}${seg(sh.water, "--water")}${seg(sh.busy, "--busy")}</div>` +
         (evening ? `<div class="bar" title="Share of the route that is street-lit">${seg(sh.lit, "--lit")}</div>` : "") : "";
+      const isFav = !!r.favId && saved.some(f => f.id === r.favId);
       li.innerHTML = `<span class="stripe"></span>
         <div class="head"><div><div class="name"></div><div class="via"></div></div><div class="km">${(r.dist / 1000).toFixed(2)}<small>km</small></div></div>
-        ${bar}<div class="meta">${bits.join(" · ")}</div>
-        <div class="actions"><button type="button">Save GPX</button><span class="pos">${i + 1} of ${routes.length}</span></div>`;
+        ${bar}${r.elev ? spark(r) : ""}<div class="meta">${bits.join(" · ")}</div>
+        <div class="actions"><button type="button" data-act="run">Start run</button><button type="button" data-act="fav" class="${isFav ? "on" : ""}" aria-pressed="${isFav}">${isFav ? "Saved" : "Save"}</button><button type="button" data-act="share">Share</button><button type="button" data-act="gpx">GPX</button><span class="pos">${i + 1} of ${routes.length}</span></div>`;
       li.querySelector(".name").textContent = r.name;
-      li.querySelector(".via").textContent = r.names.length ? "via " + r.names.slice(0, 2).join(", ") : "";
+      li.querySelector(".via").textContent = r.names && r.names.length ? "via " + r.names.slice(0, 2).join(", ") : "";
       li.addEventListener("click", () => select(i, true));
-      li.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(i, true); } });
-      li.querySelector("button").addEventListener("click", e => { e.stopPropagation(); saveGpx(r); });
+      li.addEventListener("keydown", e => { if (e.target === li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); select(i, true); } });
+      const acts = { gpx: () => saveGpx(r), share: () => shareRoute(r), fav: () => toggleFav(r), run: () => { if (active !== i) select(i); startFollow(r); } };
+      li.querySelectorAll("button").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); acts[b.dataset.act](); }));
       list.appendChild(li);
     });
   }
@@ -961,19 +1369,44 @@ if (typeof L !== "undefined") (function () {
   }).observe(panel);
   $("grab").addEventListener("click", () => panel.classList.toggle("min"));
 
-  /* ---------- distance stepper ---------- */
+  /* ---------- distance or time ---------- */
   function sizeKm() {
     let w = 0.06;
     for (const ch of String($("km").value || "8")) w += ch === "." || ch === "," ? 0.3 : 0.62;
     $("km").style.width = w + "em";
   }
-  function stepKm(d) {
-    const v = Math.min(60, Math.max(1, (parseFloat($("km").value) || 8) + d));
-    $("km").value = Math.round(v * 2) / 2; sizeKm(); save();
+  /* The target in metres: typed directly, or worked out from minutes and pace. */
+  function targetMeters() {
+    const v = parseFloat($("km").value);
+    return unitMode === "min" ? v * 60 / (parsePace($("pace").value) || 360) * 1000 : v * 1000;
   }
-  $("less").addEventListener("click", () => stepKm(-0.5));
-  $("longer").addEventListener("click", () => stepKm(0.5));
-  $("km").addEventListener("input", sizeKm);
+  function updateHelp() {
+    const h = $("kmHelp"), t = targetMeters();
+    h.hidden = unitMode !== "min";
+    if (unitMode === "min") h.textContent = t > 0 ? `About ${(t / 1000).toFixed(1)} km at ${parsePace($("pace").value) ? $("pace").value : "6:00"} per km` : "";
+  }
+  function setMode(m, keepValue) {
+    if (m !== "min") m = "km";
+    const pace = parsePace($("pace").value) || 360, v = parseFloat($("km").value) || 8, was = unitMode;
+    unitMode = m;
+    $("modeKm").classList.toggle("on", m === "km"); $("modeMin").classList.toggle("on", m === "min");
+    $("kmLabel").textContent = m === "km" ? "Distance" : "Time";
+    $("unit").textContent = m;
+    Object.assign($("km"), m === "km" ? { min: "1", max: "60", step: "0.5" } : { min: "10", max: "360", step: "5" });
+    if (!keepValue && was !== m) $("km").value = m === "min" ? Math.max(10, Math.round(v * pace / 60 / 5) * 5) : Math.max(1, Math.round(v * 60 / pace * 2) / 2);
+    sizeKm(); updateHelp(); save();
+  }
+  function stepKm(dir) {
+    const min = unitMode === "min", step = min ? 5 : 0.5;
+    const v = Math.min(min ? 360 : 60, Math.max(min ? 10 : 1, (parseFloat($("km").value) || (min ? 45 : 8)) + dir * step));
+    $("km").value = Math.round(v / step) * step; sizeKm(); updateHelp(); save(); showWeather();
+  }
+  $("less").addEventListener("click", () => stepKm(-1));
+  $("longer").addEventListener("click", () => stepKm(1));
+  $("km").addEventListener("input", () => { sizeKm(); updateHelp(); });
+  $("pace").addEventListener("input", updateHelp);
+  $("modeKm").addEventListener("click", () => setMode("km"));
+  $("modeMin").addEventListener("click", () => setMode("min"));
 
   /* ---------- main ---------- */
   $("form").addEventListener("submit", async e => {
@@ -991,32 +1424,40 @@ if (typeof L !== "undefined") (function () {
         if (!g) { setStatus("Could not find that place. Try a fuller address, or pick it on the map.", true); return; }
         setStart(g.p, g.label, true);
       }
-      const target = parseFloat($("km").value) * 1000, n = +$("count").value, paceSec = parsePace($("pace").value), evening = $("evening").checked;
-      if (!(target >= 1000)) { setStatus("Enter a distance of at least 1 km.", true); return; }
+      const target = targetMeters(), n = +$("count").value, paceSec = parsePace($("pace").value), evening = $("evening").checked;
+      const surf = $("surface").value, fresh = $("fresh").checked;
+      if (!(target >= 1000)) { setStatus(unitMode === "min" ? "Enter a longer time: the loop has to be at least 1 km." : "Enter a distance of at least 1 km.", true); return; }
+      stopFollow();
       const mask = ($("wantPark").checked ? PARK : 0) | ($("wantNature").checked ? NATURE : 0) | ($("wantWater").checked ? WATER : 0);
       if (via && haversine(start, via) * 2 * 1.2 > target) {
         setStatus(`The must-pass point is about ${(haversine(start, via) / 1000).toFixed(1)} km away in a straight line, too far for a ${(target / 1000).toFixed(1)} km loop. Move it closer or raise the distance.`, true); return;
       }
       save();
-      routes = []; active = -1; lastRun = { target, paceSec, evening };
+      routes = []; active = -1; lastRun = { target, paceSec, evening, mask, surf, fresh };
       $("routes").innerHTML = ""; $("hint").hidden = true; draw();
 
       let note = "";
-      if (mask || evening) {
-        setStatus(evening ? "Loading parks, water and street lighting nearby…" : "Loading parks, nature and water nearby…");
-        const sc = await loadScenery(target, evening);
-        if (id !== runId) return;
-        if (!sc) { scenery = null; sceneryKey = null; drawScenery(); note = " Scenery data could not be loaded, so these are plain loops."; }
-      } else { scenery = null; sceneryKey = null; drawScenery(); }
-      $("legend").hidden = !scenery; $("legendLit").hidden = !evening;
+      setStatus(evening ? "Loading parks, water and street lighting nearby…" : "Loading parks, nature and water nearby…");
+      const sc = await loadScenery(target, evening, surf !== "any");
+      if (id !== runId) return;
+      if (!sc) { scenery = null; sceneryKey = null; drawScenery(); note = " Scenery data could not be loaded, so these are plain loops."; }
+      else {
+        /* mark the streets of saved routes, so new routes can steer away from them */
+        sc.clearBit(USED);
+        if (fresh) for (const f of favs()) sc.markLine(decodePolyline(f.line), USED);
+      }
+      $("legend").hidden = !scenery || !mask; $("legendLit").hidden = !evening;
 
-      const rank = evening ? s => s.lit + 0.5 * s.scenic - 0.3 * s.busy : s => s.scenic - 0.5 * s.busy;
-      const opt = { id, target, mask, evening: evening && !!scenery, rank };
+      const rank = s => (evening ? s.lit + 0.5 * s.scenic - 0.3 * s.busy : s.scenic - 0.5 * s.busy) +
+        (surf === "paved" ? -0.6 * s.unpaved : surf === "trails" ? 0.6 * s.unpaved : 0) - (fresh ? 0.6 * s.seen : 0);
+      const wantLit = evening && !!scenery, wantTrail = surf === "trails" && !!scenery;
+      const ok = wantLit || wantTrail ? a => (!wantLit || a.lit) && (!wantTrail || a.trail) : null;
+      const opt = { id, target, mask, ok, rank };
       let plan;
       if (via) plan = Array.from({ length: n }, (_, k) => { const sh = VIA_SHAPES[(viaRound + k) % VIA_SHAPES.length]; return { name: k => "Loop " + k, run: () => viaLoop(sh, opt) }; });
       else {
         if (usedBearings.size > 16 - n) usedBearings.clear();
-        plan = pickBearings(scenery, start, target / (2 * Math.PI * 1.35), n, mask, opt.evening, usedBearings, Math.random)
+        plan = pickBearings(scenery, start, target / (2 * Math.PI * 1.35), n, mask, ok, usedBearings, Math.random)
           .map((c, k) => { usedBearings.add(c.k); return { name: () => compass(c.b) + " loop", run: () => circleLoop(c.b, k % 2 === 0, opt) }; });
       }
       viaRound += n;
@@ -1029,6 +1470,11 @@ if (typeof L !== "undefined") (function () {
           if (id !== runId) return;
           if (res) {
             res.name = plan[k].name(routes.length + 1);
+            res.scen = !!scenery && !!mask; res.baseRank = res.rank;
+            nearPois(res);
+            await elevate(res);
+            if (id !== runId) return;
+            applyHills(res);
             routes.push(res); routes.sort((a, b) => b.rank - a.rank);
             renderCards(); draw();
             if (routes.length === 1) map.fitBounds(L.latLngBounds(res.pts), fitOptions());
@@ -1041,6 +1487,7 @@ if (typeof L !== "undefined") (function () {
         setStatus(`${routes.length} route${routes.length > 1 ? "s" : ""} ready, nicest first.` +
           (failed ? ` ${failed} option${failed > 1 ? "s" : ""} had no good loop.` : "") + note);
         $("hint").hidden = false;
+        pushHistory();
         if (phone.matches) {
           /* fold the controls away so the map gets the room; the grabber brings them back */
           $("more").open = false; panel.classList.add("min");
@@ -1051,7 +1498,7 @@ if (typeof L !== "undefined") (function () {
     } catch (err) {
       console.error(err);
       setStatus("Something went wrong reaching the map services. Check your connection and try again.", true);
-    } finally { if (id === runId) go.disabled = false; }
+    } finally { if (id === runId) { go.disabled = false; draw(); } }
   });
 
   $("locate").addEventListener("click", () => {
@@ -1066,15 +1513,14 @@ if (typeof L !== "undefined") (function () {
   /* ---------- start-up ---------- */
   applyLayout();
   applyTheme();
-  try {
-    const s = JSON.parse(localStorage.getItem("lrp") || "null");
-    if (s) {
-      if (s.km) $("km").value = s.km;
-      if (s.pace) $("pace").value = s.pace;
-      if (s.p) setTimeout(() => setStart(s.p, parseLatLon(s.label || "") ? null : s.label, true), 80);
-    }
-  } catch (e) {}
-  sizeKm();
+  const s0 = store.get("lrp", null);
+  if (s0) {
+    if (s0.pace) $("pace").value = s0.pace;
+    if (s0.unit === "min") setMode("min", true);
+    if (s0.km) $("km").value = s0.km;
+  }
+  sizeKm(); updateHelp(); renderSaved();
+  if (!loadShared() && s0 && s0.p) setTimeout(() => setStart(s0.p, parseLatLon(s0.label || "") ? null : s0.label, true), 80);
 })();
 </script>
 </body>
