@@ -197,7 +197,7 @@ summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--soft)
 [data-theme="night"] #runMain { font-size: 19px; font-weight: 800; }
 #runSub { font-size: 14px; color: var(--soft); }
 #runSub.off { color: var(--warn); font-weight: 600; }
-.handle { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 5px solid; box-shadow: 0 1px 5px rgba(0,0,0,.5); cursor: grab; }
+.handle { width: 26px; height: 26px; touch-action: none; border-radius: 50%; background: #fff; border: 5px solid; box-shadow: 0 1px 5px rgba(0,0,0,.5); cursor: grab; }
 .poi { width: max-content; transform: translate(-50%, -50%); padding: 2px 5px; border-radius: 6px; font: 700 10px/1.2 var(--font); color: #fff; background: #1c7ed6; border: 1.5px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
 .poi.toilet { background: #5f6b76; }
 .poi.light { background: #e8590c; }
@@ -938,30 +938,37 @@ if (typeof L !== "undefined") (function () {
 
   /* ---------- scenery data ---------- */
   async function loadScenery(target, evening, surf) {
-    const radius = Math.round(Math.min(7000, Math.max(1500, target * 0.45)));
+    const radius = Math.round(Math.min(6000, Math.max(1500, target * 0.4)));
     if (scenery && sceneryKey && haversine(sceneryKey.p, start) < 400 && radius <= sceneryKey.radius &&
         (!evening || sceneryKey.evening) && (!surf || sceneryKey.surf)) return scenery;
     const a = `(around:${radius},${start[0].toFixed(5)},${start[1].toFixed(5)});`;
-    const q = `[out:json][timeout:40];(` +
+    const head = `[out:json][timeout:40];(`, tail = `);out geom qt;`;
+    const qScenery = head +
       `way["leisure"~"^(park|nature_reserve)$"]${a}relation["leisure"~"^(park|nature_reserve)$"]${a}` +
       `way["leisure"="garden"]["name"]${a}` +
       `way["landuse"~"^(forest|meadow|recreation_ground|village_green)$"]${a}relation["landuse"="forest"]${a}` +
       `way["natural"~"^(wood|heath|scrub|grassland|water)$"]${a}relation["natural"~"^(wood|heath|water)$"]${a}` +
-      `way["waterway"~"^(river|canal)$"]${a}` +
-      `way["highway"~"^(trunk|primary|secondary)$"]${a}` +
+      `way["waterway"~"^(river|canal)$"]${a}` + tail;
+    const qStreets = head +
+      `way["highway"~"^(trunk|primary|secondary|tertiary|pedestrian)$"]${a}` +
       `node["amenity"~"^(drinking_water|toilets|school)$"]${a}way["amenity"="school"]${a}way["landuse"="retail"]${a}` +
-      `node["highway"="traffic_signals"]${a}node["crossing"="traffic_signals"]${a}way["highway"~"^(tertiary|pedestrian)$"]${a}` +
+      `node["highway"="traffic_signals"]${a}node["crossing"="traffic_signals"]${a}` +
       (evening ? `way["highway"]["lit"="yes"]${a}` : "") +
-      (surf ? `way["highway"]["surface"~"^(unpaved|gravel|fine_gravel|compacted|dirt|ground|earth|grass|sand|mud|woodchips|pebblestone)$"]${a}way["highway"="track"][!"surface"]${a}` : "") +
-      `);out geom qt;`;
+      (surf ? `way["highway"]["surface"~"^(unpaved|gravel|fine_gravel|compacted|dirt|ground|earth|grass|sand|mud|woodchips|pebblestone)$"]${a}way["highway"="track"][!"surface"]${a}` : "") + tail;
+    /* Ask two servers at once and take whichever answers first; fall back to a third. */
+    const ask = async (url, q) => {
+      const r = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+      if (!r.ok) throw new Error("Overpass " + r.status);
+      const j = await r.json();
+      if (!j.elements) throw new Error("Overpass: no data");
+      return j.elements;
+    };
+    const get = q => Promise.any([ask(OVERPASS[0], q), ask(OVERPASS[1], q)]).catch(() => ask(OVERPASS[2], q));
     let data = null;
-    for (const url of OVERPASS) {
-      try {
-        const r = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
-        if (!r.ok) continue;
-        data = await r.json(); break;
-      } catch (e) { console.warn("Overpass failed", url, e); }
-    }
+    try {
+      const [green, streets] = await Promise.all([get(qScenery), get(qStreets).catch(e => { console.warn(e); return []; })]);
+      data = { elements: green.concat(streets) };
+    } catch (e) { console.warn("Overpass failed", e); }
     if (!data || !data.elements) return null;
     scenery = buildScenery(data.elements, start, radius);
     sceneryKey = { p: start, radius, evening, surf };
@@ -980,21 +987,21 @@ if (typeof L !== "undefined") (function () {
   }
 
   /* ---------- routing ---------- */
-  async function fetchRoute(points) {
+  async function fetchRoute(points, keepSpurs) {
     const coords = points.map(p => p[1].toFixed(6) + "," + p[0].toFixed(6)).join(";");
     for (let attempt = 0; ; attempt++) {
       const r = await fetch(ROUTER + coords + "?overview=full&geometries=geojson&steps=false");
       if (r.status === 429 && attempt < 3) { await sleep(1200 * (attempt + 1)); continue; }
       const j = await r.json();
       if (j.code !== "Ok" || !j.routes || !j.routes[0]) throw new Error(j.message || j.code || "No route");
-      const pts = trimSpurs(j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+      const raw = j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), pts = keepSpurs ? raw : trimSpurs(raw);
       return { pts, dist: pathLength(pts) };
     }
   }
   /* Try a shape at several sizes until its routed length lands near the target; keep the best trade-off. */
   async function calibrate(shape, size, resize, opt) {
     const cands = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       if (opt.id !== runId) return null;
       const names = [];
       const points = shape(size).map(w => {
@@ -1006,18 +1013,22 @@ if (typeof L !== "undefined") (function () {
       res.share = scoreRoute(res.pts, scenery, opt.mask, opt.tf);
       res.names = names; res.rank = opt.rank(res.share); res.way = points;
       cands.push(res);
-      if (Math.abs(res.dist - opt.target) / opt.target < 0.03) break;
+      res.size = size;
+      if (Math.abs(res.dist - opt.target) / opt.target < 0.05) break;
       size = resize(size, res.dist);
-      await sleep(300);
     }
     return chooseCandidate(cands, opt.target, c => c.rank);
   }
   const fix = p => ({ p, fixed: true });
-  function circleLoop(bearing, clockwise, opt) {
-    return calibrate(
+  /* How much longer real paths are than the circle they follow; learned from each finished route so later ones start closer. */
+  let detour = 1.35;
+  async function circleLoop(bearing, clockwise, opt) {
+    const res = await calibrate(
       r => [fix(start), ...loopWaypoints(start, bearing, r, clockwise).map(p => ({ p, reach: r * 0.45 })), fix(start)],
-      opt.target / (2 * Math.PI * 1.35),
+      opt.target / (2 * Math.PI * detour),
       (r, dist) => r * Math.min(1.8, Math.max(0.5, opt.target / dist)), opt);
+    if (res && res.size) detour = Math.min(2.2, Math.max(1.05, 0.5 * detour + 0.5 * res.dist / (2 * Math.PI * res.size)));
+    return res;
   }
   function viaLoop(shape, opt) {
     const [s, t, u] = shape, d = haversine(start, via), brg = bearingOf(start, via), mid = destination(start, brg, d / 2);
@@ -1065,7 +1076,7 @@ if (typeof L !== "undefined") (function () {
       for (let k = 1; k <= 5; k++) {
         const f = k / 6;
         const m = L.marker(pointAt(r.pts, cum, f * r.dist), { draggable: true, zIndexOffset: 800, title: "Drag to reshape the route",
-          icon: L.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11], html: `<div class="handle" style="border-color:${c}"></div>` }) }).addTo(handleLayer);
+          icon: L.divIcon({ className: "", iconSize: [26, 26], iconAnchor: [13, 13], html: `<div class="handle" style="border-color:${c}"></div>` }) }).addTo(handleLayer);
         m.on("dragend", () => reshape(r, f, m.getLatLng()));
       }
     }
@@ -1092,13 +1103,13 @@ if (typeof L !== "undefined") (function () {
       let k = 1;
       while (k < last && at[k] <= f) k++;
       const way = r.way.slice(0, k).concat([[ll.lat, ll.lng]], r.way.slice(k));
-      const res = await fetchRoute(way);
+      const res = await fetchRoute(way, true);
       r.pts = res.pts; r.dist = res.dist; r.way = way; r.favId = null;
       if (r.scen) r.share = scoreRoute(r.pts, scenery, lastRun.mask == null ? 7 : lastRun.mask, lastRun.tf);
       nearPois(r);
       await elevate(r);
       renderCards(); draw();
-      setStatus(`Route reshaped. It is now ${(r.dist / 1000).toFixed(2)} km.`);
+      setStatus(`Route reshaped through that spot. It is now ${(r.dist / 1000).toFixed(2)} km.`);
     } catch (e) {
       console.warn(e); draw();
       setStatus("Could not route through that spot. Try a point on a path or street.", true);
@@ -1380,6 +1391,12 @@ if (typeof L !== "undefined") (function () {
       li.querySelectorAll("button").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); acts[b.dataset.act](); }));
       list.appendChild(li);
     });
+    /* redrawing the cards must not make the phone carousel jump back to the first card */
+    if (phone.matches && active > 0 && list.children[active]) {
+      scrolling = true;
+      list.scrollLeft = list.children[active].offsetLeft - (list.clientWidth - list.children[active].offsetWidth) / 2;
+      setTimeout(() => { scrolling = false; }, 300);
+    }
   }
 
   /* ---------- theme: light by day, dark before 08:00 and from 20:00 ---------- */
@@ -1507,26 +1524,33 @@ if (typeof L !== "undefined") (function () {
       }
       viaRound += n;
 
-      let failed = 0;
-      for (let k = 0; k < plan.length; k++) {
-        setStatus(`Building route ${k + 1} of ${plan.length}…`);
-        try {
-          const res = await plan[k].run();
-          if (id !== runId) return;
-          if (res) {
-            res.name = plan[k].name(routes.length + 1);
-            res.scen = !!scenery && !!mask; res.baseRank = res.rank;
-            nearPois(res);
-            await elevate(res);
+      let failed = 0, next = 0, done = 0;
+      const hillsMatter = $("hills").value !== "any";
+      const worker = async () => {
+        while (next < plan.length) {
+          const k = next++;
+          try {
+            const res = await plan[k].run();
             if (id !== runId) return;
-            applyHills(res);
-            routes.push(res); routes.sort((a, b) => b.rank - a.rank);
-            renderCards(); draw();
-            if (routes.length === 1) map.fitBounds(L.latLngBounds(res.pts), fitOptions());
-          } else failed++;
-        } catch (err) { failed++; console.warn(err); }
-        await sleep(300);
-      }
+            if (res) {
+              res.name = plan[k].name(routes.length + 1);
+              res.scen = !!scenery && !!mask; res.baseRank = res.rank;
+              nearPois(res);
+              if (hillsMatter) { await elevate(res); if (id !== runId) return; }
+              applyHills(res);
+              routes.push(res); routes.sort((a, b) => b.rank - a.rank);
+              renderCards(); draw();
+              if (routes.length === 1) map.fitBounds(L.latLngBounds(res.pts), fitOptions());
+              if (!hillsMatter) elevate(res).then(() => { if (id === runId && routes.includes(res)) renderCards(); });
+            } else failed++;
+          } catch (err) { failed++; console.warn(err); }
+          done++;
+          if (id === runId) setStatus(`Building routes… ${done} of ${plan.length} done.`);
+        }
+      };
+      setStatus(`Building ${plan.length} routes…`);
+      await Promise.all([worker(), worker(), worker()]);
+      if (id !== runId) return;
       if (!routes.length) setStatus("No loops found from here. The routing service may be busy, or there are few paths nearby. Try again, or move the pin.", true);
       else {
         setStatus(`${routes.length} route${routes.length > 1 ? "s" : ""} ready, nicest first.` +
