@@ -126,8 +126,10 @@ details { border-top: 1px solid var(--line); padding-top: 10px; }
 summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--soft); min-height: 28px; }
 .more { display: flex; flex-direction: column; gap: 11px; padding-top: 8px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.field { display: flex; flex-direction: column; gap: 5px; }
-.field input, .field select { width: 100%; }
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+input[type=datetime-local] { -webkit-appearance: none; appearance: none; max-width: 100%; text-align: left; }
+.field input, .field select { width: 100%; max-width: 100%; }
+form, details, .more { min-width: 0; max-width: 100%; }
 .plain {
   min-height: 44px; padding: 8px 14px; font-weight: 600; background: var(--panel);
   border: 1px solid var(--line); border-radius: var(--r-field);
@@ -239,7 +241,10 @@ footer { margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--soft)
     left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); padding-bottom: 16px;
     border: 1px solid var(--line); border-radius: 28px;
   }
-  #grab { display: flex; flex: none; align-items: center; justify-content: center; height: 26px; margin: 0 -16px -8px; background: none; border: 0; }
+  #panel > * { flex-shrink: 0; }
+  #panel, [data-theme="night"] #panel { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; }
+  #grab { display: flex; flex: none; align-items: center; justify-content: center; height: 34px; margin: 0 -16px -10px; background: var(--panel); border: 0;
+    position: sticky; top: 0; z-index: 3; border-radius: 18px 18px 0 0; touch-action: none; }
   #grab span { width: 40px; height: 5px; border-radius: 3px; background: var(--line); }
   header, footer, .legend, .hint, #startHint, .startbox .label { display: none; }
   .startbox {
@@ -253,7 +258,8 @@ footer { margin-top: auto; padding-top: 6px; font-size: 12px; color: var(--soft)
   #routes:empty { display: none; }
   .route { flex: 0 0 calc(100% - 26px); scroll-snap-align: center; }
   .route .pos { display: inline; }
-  .primary { order: 3; }
+  .primary { order: 3; position: sticky; bottom: 0; z-index: 2; box-shadow: 0 0 0 8px var(--panel); }
+  [data-theme="night"] .primary { box-shadow: 0 0 0 8px #141e2c; }
   #status { order: 4; font-size: 13px; }
   #panel.min form, #panel.min #status { display: none; }
   #panel.following form, #panel.following #routes, #panel.following .primary, #panel.following #status { display: none; }
@@ -1045,11 +1051,25 @@ if (typeof L !== "undefined") (function () {
   }
 
   /* ---------- routing ---------- */
+  /* The free routing service turns away bursts of requests, so requests start at most one every 450 ms,
+     and a refused or failed request is retried a few times with a growing pause. */
+  let nextSlot = 0, refused = 0;
+  async function slot() {
+    const now = Date.now(), t = Math.max(now, nextSlot);
+    nextSlot = t + 450;
+    if (t > now) await sleep(t - now);
+  }
   async function fetchRoute(points, keepSpurs) {
     const coords = points.map(p => p[1].toFixed(6) + "," + p[0].toFixed(6)).join(";");
     for (let attempt = 0; ; attempt++) {
-      const r = await fetch(ROUTER + coords + "?overview=full&geometries=geojson&steps=false");
-      if (r.status === 429 && attempt < 3) { await sleep(1200 * (attempt + 1)); continue; }
+      await slot();
+      let r = null;
+      try { r = await fetch(ROUTER + coords + "?overview=full&geometries=geojson&steps=false"); } catch (e) {}
+      if (!r || r.status === 429 || r.status >= 500) {
+        refused++;
+        if (attempt < 3) { nextSlot = Math.max(nextSlot, Date.now() + 1500 * (attempt + 1)); continue; }
+        throw new Error("Routing service unavailable");
+      }
       const j = await r.json();
       if (j.code !== "Ok" || !j.routes || !j.routes[0]) throw new Error(j.message || j.code || "No route");
       const raw = j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), pts = keepSpurs ? raw : trimSpurs(raw);
@@ -1485,7 +1505,15 @@ if (typeof L !== "undefined") (function () {
     const h = phone.matches ? Math.max(0, window.innerHeight - panel.getBoundingClientRect().top) : 0;
     root.style.setProperty("--sheet-h", h + "px");
   }).observe(panel);
-  $("grab").addEventListener("click", () => panel.classList.toggle("min"));
+  /* tap the handle to fold or unfold the sheet, or swipe it down / up */
+  let grabY = null, grabMoved = false;
+  $("grab").addEventListener("click", () => { if (!grabMoved) panel.classList.toggle("min"); grabMoved = false; });
+  $("grab").addEventListener("touchstart", e => { grabY = e.touches[0].clientY; grabMoved = false; }, { passive: true });
+  $("grab").addEventListener("touchend", e => {
+    if (grabY == null) return;
+    const dy = e.changedTouches[0].clientY - grabY; grabY = null;
+    if (Math.abs(dy) > 24) { grabMoved = true; panel.classList.toggle("min", dy > 0); panel.scrollTop = 0; setTimeout(() => { grabMoved = false; }, 400); }
+  });
 
   /* ---------- distance or time ---------- */
   function sizeKm() {
@@ -1615,9 +1643,11 @@ if (typeof L !== "undefined") (function () {
         }
       };
       setStatus(`Building ${plan.length} routes…`);
-      await Promise.all([worker(), worker(), worker(), worker()]);
+      refused = 0;
+      await Promise.all([worker(), worker()]);
       if (id !== runId) return;
-      if (!routes.length) setStatus("No loops found from here. The routing service may be busy, or there are few paths nearby. Try again, or move the pin.", true);
+      if (!routes.length) setStatus(refused ? "The routing service is turning requests away right now (too many at once). Wait about ten seconds and press Find routes again."
+        : "No loops found from here: there seem to be too few paths nearby. Move the pin or try another distance.", true);
       else {
         setStatus(`${routes.length} route${routes.length > 1 ? "s" : ""} ready, nicest first.` +
           (scenery ? ` Street busyness is estimated for ${at.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}.` : "") +
